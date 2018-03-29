@@ -7,37 +7,39 @@ function createImageFromUrl(url) {
   });
 }
 
-function debounce(callback, delay) {
-  let timeout;
-  return function() {
-    let context = this, args = arguments;
-    let later = function() {
-      timeout = null;
-      callback.apply(context, args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, delay);
-  };
-}
+let toUpdate = new Set();
 
 browser.runtime.onMessage.addListener(({ type }, { tab }) => {
-  if (type !== "scroll") {
-    return;
+  switch (type) {
+    case "scrollStart":
+      toUpdate.add(tab.windowId);
+      loop(tab.windowId);
+      break;
+    case "scrollEnd":
+      toUpdate.delete(tab.windowId);
+      break;
   }
-  debounce(updateTheme, 5)(tab);
 });
 
-async function updateTheme(tab) {
+async function loop(windowId) {
+  await updateTheme(windowId);
+  if (toUpdate.has(windowId)) {
+    setTimeout(async () => await loop(windowId), 10);
+  }
+}
+async function updateTheme(windowId) {
   let img = await createImageFromUrl(await browser.tabs.captureVisibleTab());
 
   let canvas = document.createElement("canvas");
   let ctx = canvas.getContext("2d");
 
   stackBlurImage(img, canvas, 15, false, 100);
+  let [r, g, b] = [255,255,255]
+  //let [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
 
-  await browser.theme.update(tab.windowId, {
+  await browser.theme.update(windowId, {
     colors: {
-      accentcolor: "#efefef",
+      accentcolor: `rgb(${r},${g},${b})`,
       textcolor: "black",
       toolbar: "rgba(0,0,0,0.1)"
     },
@@ -47,4 +49,4 @@ async function updateTheme(tab) {
   })
 }
 
-browser.tabs.onActivated.addListener(updateTheme);
+browser.tabs.onActivated.addListener((tab) => updateTheme(tab.windowId));
